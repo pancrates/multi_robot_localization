@@ -57,7 +57,7 @@ class Sim:
 class BlindSim():
     def __init__(self):
         self.dt = 0.1
-        self.robotList = [Robot()]
+        self.robotList = [Robot(),Robot()]
         self.history = []
     def step(self,robot):
             start_internal_pos = robot.get_robot_position()
@@ -96,14 +96,14 @@ class BlindSim():
             xs = [h["x"] for h in self.history[i]["moves"]]
             ys = [h["y"] for h in self.history[i]["moves"]]
             print(xs)
-            particle_history = [h[i]["particles"] for h in self.history]
+            particle_history = [h for h in self.history[i]["particles"]]
             ax.plot(xs, ys)  # Plot some data on the axes
             for ps in particle_history:
                 print(ps)
                 x_positions = [p.x for p in ps]
                 y_positions = [p.y for p in ps]
                 ax.scatter(x_positions, y_positions,s=1)  # Plot some data on the axes
-        
+ 
         plt.show()
 
 
