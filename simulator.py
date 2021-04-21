@@ -1,10 +1,50 @@
 from robot import Robot
 import matplotlib.pyplot as plt
 
+terrain_data = [
+    [0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,1,0,1,0,0],
+    [0,0,1,0,0,1,0,1,0,0],
+    [0,0,1,0,0,1,0,1,0,0],
+    [0,0,1,0,0,1,0,1,0,0],
+    [0,0,1,0,0,1,0,1,0,0],
+    [0,0,1,0,0,1,0,1,0,0],
+    [0,0,1,0,0,1,0,1,0,0],
+    [0,0,1,1,1,1,0,1,0,0],
+    [0,0,0,0,0,0,0,0,0,0],
+]
+
 class Terrain:
+    def __init__(self, grid):
+        self.grid = np.array(grid)
+
     def get_distance(self, x, y, phi):
-        # TODO
-        return 1.0
+        grid = self.grid
+        width, height = grid.shape
+        dx, dy = math.cos(phi), math.sin(phi)
+        dsx = 1 if dx > 0 else -1
+        dsy = 1 if dy > 0 else -1
+        tx = math.floor(x) if dx > 0 else (math.ceil(x) - 1)
+        ty = math.floor(y) if dy > 0 else (math.ceil(y) - 1)
+        dtx = (tx - x + (1 if dx > 0 else 0)) / dx if dx != 0 else np.inf
+        dty = (ty - y + (1 if dy > 0 else 0)) / dy if dy != 0 else np.inf
+        ddtx = dsx / dx if dx != 0 else np.inf
+        ddty = dsy / dy if dy != 0 else np.inf
+        t = 0
+        while tx >= 0 and tx < width and ty >= 0 and ty < height:
+            if grid[ty,tx]:
+                break
+            if dtx < dty:
+                tx += dsx
+                t += dtx
+                dty -= dtx
+                dtx = ddtx
+            else:
+                ty += dsy
+                t += dty
+                dtx -= dty
+                dty = ddty
+        return t
 
 
 
