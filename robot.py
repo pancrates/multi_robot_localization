@@ -88,7 +88,7 @@ class Particle:
         deltas = self.kinematics(u,w)
         self.x = self.x     + deltas["dx"] + np.random.normal(loc=0,scale=0.1)
         self.y = self.y     + deltas["dy"] + np.random.normal(loc=0,scale=0.1)
-        self.phi = self.phi + deltas["dx"] + np.random.normal(loc=0,scale=0.01)
+        self.phi = self.phi + deltas["dPhi"] + np.random.normal(loc=0,scale=0.01)
 
 
     ### Here the ray trace callback traditinaly works with the robot generated map

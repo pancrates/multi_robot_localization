@@ -58,7 +58,7 @@ class BlindSim():
     def __init__(self):
         self.dt = 0.1
         self.robotList = [Robot()]
-
+        self.history = []
     def step(self,robot):
             start_internal_pos = robot.get_robot_position()
             com_vel = robot.move()
@@ -69,25 +69,41 @@ class BlindSim():
             print("End ",end_internal_pos)
             return {"new_position": end_internal_pos, "particles":particles}
 
+    #    def no_env_sim(self):
+    #        history = []
+    #        for n in range(100):
+    #            for i,r in enumerate(self.robotList):
+    #                h = self.step(r)
+    #                history.append(h)
+    #        self.plot_path(history)
+
+
     def no_env_sim(self):
-        history = []
+        for i,r in enumerate(self.robotList):
+            self.history.append({"rid":i,"moves":[],"particles":[]})
         for n in range(100):
             for i,r in enumerate(self.robotList):
                 h = self.step(r)
-                history.append(h)
-        self.plot_path(history)
+                self.history[i]["moves"].append(h["new_position"])
+                self.history[i]["particles"].append(h["particles"])
+        print(self.history[0]["moves"])
+        self.plot_path()
 
-    def plot_path(self,history):
-        xs = [h["new_position"]["x"] for h in history]
-        ys = [h["new_position"]["y"] for h in history]
-        particle_history = [h["particles"] for h in history]
+
+    def plot_path(self):
         fig, ax = plt.subplots()  # Create a figure containing a single axes.
-        ax.plot(xs, ys)  # Plot some data on the axes
-        for ps in particle_history:
-            print(ps)
-            x_positions = [p.x for p in ps]
-            y_positions = [p.y for p in ps]
-            ax.scatter(x_positions, y_positions,s=1)  # Plot some data on the axes
+        for i,r in enumerate(self.robotList):
+            xs = [h["x"] for h in self.history[i]["moves"]]
+            ys = [h["y"] for h in self.history[i]["moves"]]
+            print(xs)
+            particle_history = [h[i]["particles"] for h in self.history]
+            ax.plot(xs, ys)  # Plot some data on the axes
+            for ps in particle_history:
+                print(ps)
+                x_positions = [p.x for p in ps]
+                y_positions = [p.y for p in ps]
+                ax.scatter(x_positions, y_positions,s=1)  # Plot some data on the axes
+        
         plt.show()
 
 
