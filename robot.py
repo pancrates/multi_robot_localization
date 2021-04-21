@@ -1,4 +1,5 @@
 import numpy as np
+import scipy
 import math
 import copy
 
@@ -89,6 +90,18 @@ class Particle:
         self.y = self.y     + deltas["dy"] + np.random.normal(loc=0,scale=0.1)
         self.phi = self.phi + deltas["dx"] + np.random.normal(loc=0,scale=0.01)
 
+
+    ### Here the ray trace callback traditinaly works with the robot generated map
+    def update_weight(self,readings,ray_trace_callback,sigma=0.1):
+        w = 1
+        expected_readings = ray_tracing_callback(self.x,self.y,self.phi)
+        for i, r in enumerate(readings):
+            prob = scipy.stats.norm.pdf(r,loc=expected_readings[i],scale=sigma)
+            w*=prob
+        self.w = w
+        return w
+
+
 class MCL:
     def __init__(self,particleN=100):
         self.particle_count = particleN
@@ -100,11 +113,17 @@ class MCL:
     def apply_motion_model(self,u,w):
         for i,p in enumerate(self.particles):
             p.update_position(u,w)
-    
+
     def get_particles(self):
         return copy.deepcopy( self.particles)
-    #def apply_sensor_model(self,readings,get_readings_callback):
-         
+
+    def apply_sensor_model(self,readings,ray_trace_callback):
+        sum_w = 0
+        for i,p in enumerate(self.particles):
+            w = p.update_weight(readings,ray_trace_callback)
+            sum_w +=w
+        for p in self.particles:
+            p.w = p.w/sum_w
 
 
 
