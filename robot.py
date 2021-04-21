@@ -1,6 +1,6 @@
 import numpy as np
 import math
-
+import copy
 
 def ROUND(a):
    return int(a + 0.5)
@@ -14,7 +14,7 @@ class Robot:
         self.distances = None
         self.naigbours = []
         self.grid = np.zeros((1000,1000)) ## 0 unknown, -1 empty , 1 full
-
+        self.MCL = MCL(100)
 
     def update_sensor_readings(self,readings):
         self.distances = readings
@@ -41,6 +41,7 @@ class Robot:
 
         if self.phi < -np.pi:
             self.phi = 2*np.pi + self.phi
+        return cmd_vel
 
     def kinematics(self,u,w):
         dx = math.cos(w)*u
@@ -63,6 +64,47 @@ class Robot:
             x += dx
             y += dy
         print ('x = %s, y = %s' % (((ROUND(x),ROUND(y)))))
+
+
+
+
+
+class Particle:
+    def __init__(self,particle_id,x=0,y=0,phi=0):
+        self.x = x
+        self.y = y
+        self.phi = phi
+        self.w = 1
+        self.id = particle_id
+
+    def kinematics(self,u,w):
+        dx = math.cos(w)*u
+        dy = math.sin(w)*u
+        dPhi = w
+        return {"dx":dx,"dy":dy,"dPhi":dPhi}
+
+    def update_position(self,u,w):
+        deltas = self.kinematics(u,w)
+        self.x = self.x     + deltas["dx"] + np.random.normal(loc=0,scale=0.1)
+        self.y = self.y     + deltas["dy"] + np.random.normal(loc=0,scale=0.1)
+        self.phi = self.phi + deltas["dx"] + np.random.normal(loc=0,scale=0.01)
+
+class MCL:
+    def __init__(self,particleN=100):
+        self.particle_count = particleN
+        self.particles = []
+        for n in range(particleN):
+            self.particles.append(Particle(n))
+
+
+    def apply_motion_model(self,u,w):
+        for i,p in enumerate(self.particles):
+            p.update_position(u,w)
+    
+    def get_particles(self):
+        return copy.deepcopy( self.particles)
+    #def apply_sensor_model(self,readings,get_readings_callback):
+         
 
 
 
