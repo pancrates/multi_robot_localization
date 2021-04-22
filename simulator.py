@@ -1,6 +1,7 @@
 from robot import Robot
 import matplotlib.pyplot as plt
-
+import numpy as np
+import copy
 terrain_data = [
     [0,0,0,0,0,0,0,0,0,0],
     [0,0,0,0,0,1,0,1,0,0],
@@ -58,52 +59,105 @@ class BlindSim():
     def __init__(self):
         self.dt = 0.1
         self.robotList = [Robot(),Robot()]
+        self.robotPositions = [{"x":-3,"y":-1,"phi":np.pi},{"x":3,"y":2,"phi":2}]
         self.history = []
-    def step(self,robot):
+        self.detenction_range = 50
+
+    def calc_relative_positions(self,index):
+        source = self.robotPositions[index]
+        relative_positions = []
+        for i, pos in enumerate(self.robotPositions):
+            if i == index:
+                continue
+            else:
+                dx = (source["x"]-pos["x"])
+                dy = (source["y"]-pos["y"])
+                r = np.sqrt(dx**2 + dy**2)
+                theta = np.arctan2(dy,dx) - pos["phi"]
+                relative_positions.append( {"from":i,"to":index,"r":r,"theta":theta})
+        return relative_positions
+
+    def move_step(self,index):
+            robot = self.robotList[index]
             start_internal_pos = robot.get_robot_position()
-            com_vel = robot.move()
-            robot.MCL.apply_motion_model(com_vel["u"],com_vel["w"])
-            particles = robot.MCL.get_particles()
+            cmd_vel = robot.move()
             end_internal_pos = robot.get_robot_position()
-            print("Start ",start_internal_pos)
-            print("End ",end_internal_pos)
-            return {"new_position": end_internal_pos, "particles":particles}
+            #print("Start ",start_internal_pos)
+            #print("End ",end_internal_pos)
+            return {"cmd_vel":cmd_vel, "new_position": end_internal_pos}
 
-    #    def no_env_sim(self):
-    #        history = []
-    #        for n in range(100):
-    #            for i,r in enumerate(self.robotList):
-    #                h = self.step(r)
-    #                history.append(h)
-    #        self.plot_path(history)
 
+    def update_absolute_position(self,i):
+            robot= self.robotList[i]
+            print(self.robotPositions[i])
+            deltas = robot.kinematics(robot.cmd_vel["u"],robot.cmd_vel["w"])
+            self.robotPositions[i]["x"]   +=  deltas["dx"] + np.random.normal(loc=0,scale=0.1)
+            self.robotPositions[i]["y"]   +=  deltas["dy"] + np.random.normal(loc=0,scale=0.1)
+            self.robotPositions[i]["phi"] +=  deltas["dPhi"] + np.random.normal(loc=0,scale=0.1)
+            print(self.robotPositions[i])
+
+    def localize_step(self,index):
+            robot = self.robotList[index]
+            ### Motion model
+            robot.MCL.apply_motion_model(robot.cmd_vel["u"],robot.cmd_vel["w"])
+            particles = robot.MCL.get_particles()
+
+            ### bearing and distance
+            relative_positions = self.calc_relative_positions(index)
+            neigbours = list(filter(lambda x: x["r"] <= self.detenction_range,relative_positions))
+            dmsgs = []
+            for i, pos in enumerate(neigbours):
+                dmsg = copy.deepcopy(pos)
+                dmsg["particles"] = self.robotList[pos["from"]].MCL.get_particles()
+                print("particles ",len(dmsg["particles"]))
+                dmsgs.append(dmsg)
+            robot.MCL.apply_detection_model(dmsgs)
+
+            particles = robot.MCL.get_particles()
+            return {"neigbours":neigbours, "particles":particles}
 
     def no_env_sim(self):
         for i,r in enumerate(self.robotList):
-            self.history.append({"rid":i,"moves":[],"particles":[]})
+            self.history.append({"rid":i,"moves":[],"particles":[],"cmd_vel":[],"neigbours":[],"positions":[]})
         for n in range(100):
             for i,r in enumerate(self.robotList):
-                h = self.step(r)
+                ### Move 
+                h = self.move_step(i)
+                self.update_absolute_position(i)
                 self.history[i]["moves"].append(h["new_position"])
-                self.history[i]["particles"].append(h["particles"])
-        print(self.history[0]["moves"])
+                self.history[i]["cmd_vel"].append(h["cmd_vel"])
+                self.history[i]["positions"].append(copy.deepcopy(self.robotPositions[i]))
+            for i,r in enumerate(self.robotList):
+                l = self.localize_step(i)
+                self.history[i]["neigbours"].append(l["neigbours"])
+            for i,r in enumerate(self.robotList):
+                particles = r.MCL.simple_sampling()
+                self.history[i]["particles"].append(l["particles"])
+       # print(self.history[0]["moves"])
         self.plot_path()
 
 
     def plot_path(self):
         fig, ax = plt.subplots()  # Create a figure containing a single axes.
         for i,r in enumerate(self.robotList):
-            xs = [h["x"] for h in self.history[i]["moves"]]
-            ys = [h["y"] for h in self.history[i]["moves"]]
-            print(xs)
+            absolute_xs = [h["x"] for h in self.history[i]["positions"]]
+            absolute_ys = [h["y"] for h in self.history[i]["positions"]]
+            #print(xs)
+            belief_xs = [h["x"] for h in self.history[i]["moves"]]
+            belief_ys = [h["y"] for h in self.history[i]["moves"]]
+            #print(xs)
+
+            ax.plot(absolute_xs, absolute_ys)  # Plot some data on the axes
+            ax.plot(belief_xs, belief_ys, linestyle = ':')  # Plot some data on the axes
             particle_history = [h for h in self.history[i]["particles"]]
-            ax.plot(xs, ys)  # Plot some data on the axes
             for ps in particle_history:
-                print(ps)
+                #print(ps)
                 x_positions = [p.x for p in ps]
                 y_positions = [p.y for p in ps]
-                ax.scatter(x_positions, y_positions,s=1)  # Plot some data on the axes
- 
+                ws =  [1 for p in ps]
+                #print(ws)
+                ax.scatter(x_positions, y_positions,s=ws)  # Plot some data on the axes
+
         plt.show()
 
 

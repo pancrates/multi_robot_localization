@@ -1,8 +1,9 @@
 import numpy as np
 import scipy
+from scipy import stats
 import math
 import copy
-
+import random
 def ROUND(a):
    return int(a + 0.5)
 
@@ -14,8 +15,10 @@ class Robot:
         self.phi = 0
         self.distances = None
         self.naigbours = []
-        self.grid = np.zeros((1000,1000)) ## 0 unknown, -1 empty , 1 full
-        self.MCL = MCL(100)
+        #self.grid = np.zeros((1000,1000)) ## 0 unknown, -1 empty , 1 full
+        self.MCL = MCL(10)
+        self.cmd_vel = {"u":0,"w":0}
+
 
     def update_sensor_readings(self,readings):
         self.distances = readings
@@ -42,31 +45,25 @@ class Robot:
 
         if self.phi < -np.pi:
             self.phi = 2*np.pi + self.phi
+        self.cmd_vel = cmd_vel
         return cmd_vel
 
     def kinematics(self,u,w):
-        dx = math.cos(w)*u
-        dy = math.sin(w)*u
+        dx =  math.cos(w)*u
+        dy =  math.sin(w)*u
         dPhi = w
         return {"dx":dx,"dy":dy,"dPhi":dPhi}
 
     def wander(self):
-        u = np.random.uniform(low=-np.pi,high=np.pi)
-        w = np.random.uniform(low=-np.pi,high=np.pi)
+        #u = self.cmd_vel["u"] + np.random.normal(loc=0.5,scale=0.5)
+        #w = self.cmd_vel["w"] + np.random.normal(loc=0, scale=np.pi/2)
+
+        u = np.random.normal(loc=0.5,scale=0.5)
+        w = np.random.normal(loc=0, scale=np.pi/2)
+
         return {"u":u,"w":w}
 
-    def drawDDA(self,x1,y1,x2,y2):
-        x,y = x1,y1
-        length = (x2-x1) if (x2-x1) > (y2-y1) else (y2-y1)
-        dx = (x2-x1)/float(length)
-        dy = (y2-y1)/float(length)
-        print ('x = %s, y = %s' % (((ROUND(x),ROUND(y)))))
-        for i in range(length):
-            x += dx
-            y += dy
-        print ('x = %s, y = %s' % (((ROUND(x),ROUND(y)))))
-
-
+    #def distance_and_bearing(self,dmsg): 
 
 
 
@@ -88,7 +85,7 @@ class Particle:
         deltas = self.kinematics(u,w)
         self.x = self.x     + deltas["dx"] + np.random.normal(loc=0,scale=0.1)
         self.y = self.y     + deltas["dy"] + np.random.normal(loc=0,scale=0.1)
-        self.phi = self.phi + deltas["dPhi"] + np.random.normal(loc=0,scale=0.01)
+        self.phi = self.phi + deltas["dPhi"] + np.random.normal(loc=0,scale=0.3)
 
 
     ### Here the ray trace callback traditinaly works with the robot generated map
@@ -101,9 +98,34 @@ class Particle:
         self.w = w
         return w
 
+    def update_detection_weight(self,dmsgs):
+        if len(dmsgs) == 0:
+            print("no neigbours")
+            return 1
+
+        host_r = dmsgs[0]["to"]
+        print("PARTICLE ",self.id,"of R ",host_r,"working on particles from ",dmsgs[0]["from"])
+        w = 1
+        for i,dmsg in enumerate(dmsgs):
+            w*= self.weight_of_message(dmsg)
+        return w
+
+    def weight_of_message(self,dmsg):
+        w = 0
+        for i,p in enumerate(dmsg["particles"]):
+            dx = (p.x-self.x)
+            dy = (p.x-self.y)
+            dr = np.sqrt(dx**2 + dy**2) - dmsg["r"]
+            dTheta = np.arctan2(dy,dx) - (p.phi + dmsg["theta"])
+            #dphi = np.pi - p.phi - self.phi + 
+            sample = np.array([dr,dTheta])
+            prob = stats.multivariate_normal.pdf(sample,mean=np.array([0,0]),cov=100)
+            #print(prob)
+            w+=prob
+        return w/len(dmsg["particles"])
 
 class MCL:
-    def __init__(self,particleN=100):
+    def __init__(self,particleN=10):
         self.particle_count = particleN
         self.particles = []
         for n in range(particleN):
@@ -125,8 +147,28 @@ class MCL:
         for p in self.particles:
             p.w = p.w/sum_w
 
+    def apply_detection_model(self,dmsgs):
+        sum_w = 0
+        for i,p in enumerate(self.particles):
+            w = p.update_detection_weight(dmsgs)
+            sum_w +=w
+        print("SUM w ",sum_w)
+        for p in self.particles:
+            p.w *= w/sum_w
 
-
+    def simple_sampling(self):
+        sum_w = 0
+        for i,p in enumerate(self.particles):
+            sum_w += p.w
+        weights =[p.w for p in self.particles]
+        print(weights)
+        new_ps = copy.deepcopy(random.choices(self.particles, weights=weights, k=len(weights)))
+        print(new_ps)
+        for i,p in enumerate(new_ps):
+            p.id=i
+            p.w=1
+        self.particles = new_ps
+        return self.particles
 
 #r = Robot()
 #r.drawDDA(2,5,10,200)
