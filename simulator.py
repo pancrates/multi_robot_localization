@@ -59,9 +59,9 @@ class BlindSim():
     def __init__(self):
         self.dt = 0.1
         self.robotList = [Robot(),Robot()]
-        self.robotPositions = [{"x":-3,"y":-1,"phi":np.pi},{"x":3,"y":2,"phi":2}]
+        self.robotPositions = [{"x":0,"y":0,"phi":0},{"x":0,"y":0,"phi":0}]
         self.history = []
-        self.detenction_range = 50
+        self.detenction_range = 1000
 
     def calc_relative_positions(self,index):
         source = self.robotPositions[index]
@@ -70,11 +70,12 @@ class BlindSim():
             if i == index:
                 continue
             else:
-                dx = (source["x"]-pos["x"])
-                dy = (source["y"]-pos["y"])
+                dx = (pos["x"]-source["x"])
+                dy = (pos["y"]-source["y"])
                 r = np.sqrt(dx**2 + dy**2)
                 theta = np.arctan2(dy,dx) - pos["phi"]
-                relative_positions.append( {"from":i,"to":index,"r":r,"theta":theta})
+                theta2 = np.arctan2(-dy,-dx) - source["phi"]
+                relative_positions.append( {"from":i,"to":index,"r":r,"theta":theta,"theta2":theta2})
         return relative_positions
 
     def move_step(self,index):
@@ -91,9 +92,9 @@ class BlindSim():
             robot= self.robotList[i]
             print(self.robotPositions[i])
             deltas = robot.kinematics(robot.cmd_vel["u"],robot.cmd_vel["w"])
-            self.robotPositions[i]["x"]   +=  deltas["dx"] + np.random.normal(loc=0,scale=0.1)
-            self.robotPositions[i]["y"]   +=  deltas["dy"] + np.random.normal(loc=0,scale=0.1)
-            self.robotPositions[i]["phi"] +=  deltas["dPhi"] + np.random.normal(loc=0,scale=0.1)
+            self.robotPositions[i]["x"]   +=  deltas["dx"] + np.random.normal(loc=0,scale=0.01)
+            self.robotPositions[i]["y"]   +=  deltas["dy"] + np.random.normal(loc=0,scale=0.01)
+            self.robotPositions[i]["phi"] +=  deltas["dPhi"] + np.random.normal(loc=0,scale=0.01)
             print(self.robotPositions[i])
 
     def localize_step(self,index):
@@ -112,7 +113,6 @@ class BlindSim():
                 print("particles ",len(dmsg["particles"]))
                 dmsgs.append(dmsg)
             robot.MCL.apply_detection_model(dmsgs)
-
             particles = robot.MCL.get_particles()
             return {"neigbours":neigbours, "particles":particles}
 
@@ -130,9 +130,10 @@ class BlindSim():
             for i,r in enumerate(self.robotList):
                 l = self.localize_step(i)
                 self.history[i]["neigbours"].append(l["neigbours"])
+                self.history[i]["particles"].append(l["particles"])
             for i,r in enumerate(self.robotList):
                 particles = r.MCL.simple_sampling()
-                self.history[i]["particles"].append(l["particles"])
+                self.history[i]["particles"].append(particles)
        # print(self.history[0]["moves"])
         self.plot_path()
 
@@ -156,7 +157,8 @@ class BlindSim():
                 y_positions = [p.y for p in ps]
                 ws =  [1 for p in ps]
                 #print(ws)
-                ax.scatter(x_positions, y_positions,s=ws)  # Plot some data on the axes
+                cmap = { 0:'k',1:'b',2:'y',3:'g',4:'r' }
+                ax.scatter(x_positions, y_positions,s=ws,color=cmap[i])  # Plot some data on the axes
 
         plt.show()
 

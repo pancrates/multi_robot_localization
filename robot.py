@@ -55,8 +55,8 @@ class Robot:
         return {"dx":dx,"dy":dy,"dPhi":dPhi}
 
     def wander(self):
-        #u = self.cmd_vel["u"] + np.random.normal(loc=0.5,scale=0.5)
-        #w = self.cmd_vel["w"] + np.random.normal(loc=0, scale=np.pi/2)
+        #u = self.cmd_vel["u"] + np.random.normal(loc=0,scale=0.5)
+        #w = self.cmd_vel["w"] + np.random.normal(loc=0,scale=np.pi/2)
 
         u = np.random.normal(loc=0.5,scale=0.5)
         w = np.random.normal(loc=0, scale=np.pi/2)
@@ -85,7 +85,7 @@ class Particle:
         deltas = self.kinematics(u,w)
         self.x = self.x     + deltas["dx"] + np.random.normal(loc=0,scale=0.1)
         self.y = self.y     + deltas["dy"] + np.random.normal(loc=0,scale=0.1)
-        self.phi = self.phi + deltas["dPhi"] + np.random.normal(loc=0,scale=0.3)
+        self.phi = self.phi + deltas["dPhi"] + np.random.normal(loc=0,scale=0.1)
 
 
     ### Here the ray trace callback traditinaly works with the robot generated map
@@ -119,7 +119,7 @@ class Particle:
             dTheta = np.arctan2(dy,dx) - (p.phi + dmsg["theta"])
             #dphi = np.pi - p.phi - self.phi + 
             sample = np.array([dr,dTheta])
-            prob = stats.multivariate_normal.pdf(sample,mean=np.array([0,0]),cov=100)
+            prob = stats.multivariate_normal.pdf(sample,mean=np.array([0,0]),cov=0.00001)
             #print(prob)
             w+=prob
         return w/len(dmsg["particles"])
@@ -149,6 +149,9 @@ class MCL:
 
     def apply_detection_model(self,dmsgs):
         sum_w = 0
+        if len(dmsgs) ==0:
+            print("apply_detection_model NO MESSAGES")
+            return 1
         for i,p in enumerate(self.particles):
             w = p.update_detection_weight(dmsgs)
             sum_w +=w
@@ -161,13 +164,18 @@ class MCL:
         for i,p in enumerate(self.particles):
             sum_w += p.w
         weights =[p.w for p in self.particles]
-        print(weights)
-        new_ps = copy.deepcopy(random.choices(self.particles, weights=weights, k=len(weights)))
-        print(new_ps)
-        for i,p in enumerate(new_ps):
-            p.id=i
-            p.w=1
-        self.particles = new_ps
+        ids = range(len(weights))
+        print("len w",len(weights))
+        print("len ids",len(ids))
+        #print(weights)
+        new_ids = random.choices(ids, weights=weights, k=len(weights))
+        new_particles = []
+        for i,p in enumerate(new_ids):
+            new_p = copy.deepcopy(self.particles[p])
+            new_p.id =i
+            new_p.w=1
+            new_particles.append(new_p)
+        self.particles = new_particles
         return self.particles
 
 #r = Robot()
