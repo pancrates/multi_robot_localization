@@ -4,19 +4,24 @@ from scipy import stats
 import math
 import copy
 import random
-def ROUND(a):
-   return int(a + 0.5)
-
+def norm_ang(angle):
+   return (angle + np.pi) % (2 * np.pi) - np.pi
 
 class Robot:
-    def __init__(self):
-        self.x = 0
-        self.y = 0
-        self.phi = 0
+    def __init__(self,pos=None):
+        if pos==None:
+            self.x = 0
+            self.y = 0
+            self.phi = 0
+        else:
+            self.x = pos['x']
+            self.y = pos['y']
+            self.phi = pos['phi']
+
         self.distances = None
         self.naigbours = []
         #self.grid = np.zeros((1000,1000)) ## 0 unknown, -1 empty , 1 full
-        self.MCL = MCL(10)
+        self.MCL = MCL(20,pos)
         self.cmd_vel = {"u":0,"w":0}
 
 
@@ -35,7 +40,8 @@ class Robot:
 
 
     def move(self):
-        cmd_vel =  self.wander()
+        #cmd_vel =  self.wander()
+        cmd_vel =  self.straight()
         dPosition = self.kinematics(cmd_vel["u"],cmd_vel["w"])
         self.x = self.x + dPosition["dx"]
         self.y = self.y + dPosition['dy']
@@ -48,21 +54,27 @@ class Robot:
         self.cmd_vel = cmd_vel
         return cmd_vel
 
-    def kinematics(self,u,w):
-        dx =  math.cos(w)*u
-        dy =  math.sin(w)*u
+    def kinematics(self,u,w,phi=None):
+        if phi==None:
+            phi =self.phi
+        dx =  math.cos(phi)*u
+        dy =  math.sin(phi)*u
         dPhi = w
         return {"dx":dx,"dy":dy,"dPhi":dPhi}
 
     def wander(self):
         #u = self.cmd_vel["u"] + np.random.normal(loc=0,scale=0.5)
         #w = self.cmd_vel["w"] + np.random.normal(loc=0,scale=np.pi/2)
-
         u = np.random.normal(loc=0.5,scale=0.5)
         w = np.random.normal(loc=0, scale=np.pi/2)
-
         return {"u":u,"w":w}
 
+    def straight(self):
+        #u = self.cmd_vel["u"] + np.random.normal(loc=0,scale=0.5)
+        #w = self.cmd_vel["w"] + np.random.normal(loc=0,scale=np.pi/2)
+        u = 0.1 #np.random.normal(loc=0.5,scale=0.5)
+        w = 0 #np.random.normal(loc=0, scale=np.pi/2)
+        return {"u":u,"w":w}
     #def distance_and_bearing(self,dmsg): 
 
 
@@ -76,8 +88,8 @@ class Particle:
         self.id = particle_id
 
     def kinematics(self,u,w):
-        dx = math.cos(w)*u
-        dy = math.sin(w)*u
+        dx = math.cos(self.phi)*u
+        dy = math.sin(self.phi)*u
         dPhi = w
         return {"dx":dx,"dy":dy,"dPhi":dPhi}
 
@@ -113,23 +125,36 @@ class Particle:
     def weight_of_message(self,dmsg):
         w = 0
         for i,p in enumerate(dmsg["particles"]):
+            p.phi = norm_ang(p.phi)
+            self.phi = norm_ang(self.phi)
             dx = (p.x-self.x)
             dy = (p.x-self.y)
             dr = np.sqrt(dx**2 + dy**2) - dmsg["r"]
-            dTheta = np.arctan2(dy,dx) - (p.phi + dmsg["theta"])
-            #dphi = np.pi - p.phi - self.phi + 
-            sample = np.array([dr,dTheta])
-            prob = stats.multivariate_normal.pdf(sample,mean=np.array([0,0]),cov=0.00001)
+            dTheta = norm_ang(np.arctan2(dy,dx) - (p.phi + dmsg["theta"]))
+            dPhi = norm_ang(np.pi - p.phi - self.phi + dmsg["theta"] - dmsg["theta2"])
+            sample = np.array([dr,dTheta,dPhi])
+            s=0.1
+            prob = stats.multivariate_normal.pdf(sample,mean=np.array([0,0,0]),cov=np.array([[s,0,0],[0,s,0],[0,0,4*s]]))
+
             #print(prob)
             w+=prob
         return w/len(dmsg["particles"])
 
 class MCL:
-    def __init__(self,particleN=10):
+    def __init__(self,particleN=10,pos=None):
         self.particle_count = particleN
         self.particles = []
         for n in range(particleN):
-            self.particles.append(Particle(n))
+            if pos == None:
+                x = np.random.uniform(low=-3,high=3)
+                y = np.random.uniform(low=-3,high=3)
+                phi = np.random.uniform(low=-np.pi,high=np.pi)
+                self.particles.append(Particle(n,x=x,y=y,phi=phi))
+            else:
+                x = pos['x'] + np.random.normal(loc=0,scale=0.1)
+                y = pos['y'] + np.random.normal(loc=0,scale=0.1)
+                phi = pos['phi'] + np.random.normal(loc=0,scale=0.1)
+                self.particles.append(Particle(n,x=x,y=y,phi=phi))
 
 
     def apply_motion_model(self,u,w):
@@ -154,29 +179,68 @@ class MCL:
             return 1
         for i,p in enumerate(self.particles):
             w = p.update_detection_weight(dmsgs)
+            print("New particle w: ",w)
             sum_w +=w
-        print("SUM w ",sum_w)
-        for p in self.particles:
-            p.w *= w/sum_w
+            p.w *= w
 
     def simple_sampling(self):
         sum_w = 0
         for i,p in enumerate(self.particles):
             sum_w += p.w
+
         weights =[p.w for p in self.particles]
         ids = range(len(weights))
         print("len w",len(weights))
         print("len ids",len(ids))
         #print(weights)
         new_ids = random.choices(ids, weights=weights, k=len(weights))
+        print("weights ",weights)
+        print("IDS ",new_ids)
         new_particles = []
         for i,p in enumerate(new_ids):
             new_p = copy.deepcopy(self.particles[p])
             new_p.id =i
             new_p.w=1
+            #if i <= (len(weights)/10):
+            #    new_p = Particle(i,x=np.random.uniform(low=-15,high=15),y=np.random.uniform(low=-15,high=15),phi=np.random.uniform(low=-np.pi,high=np.pi))
             new_particles.append(new_p)
         self.particles = new_particles
         return self.particles
+
+
+    ### FIX increases number of paricles
+    def reciprocal_sample(self,dmsgs):
+        new_particles = []
+        for i,dmsg in enumerate(dmsgs):
+            for j,p in enumerate(dmsg['particles']):
+                mean = self.cluster_mean(particles=dmsg["particles"])
+                #r2_x = mean["mean_x"]
+                #r2_y = mean["mean_y"]
+                #r2_phi = mean["mean_phi"]
+                r2_x = p.x
+                r2_y = p.y
+                r2_phi = p.phi
+                thetaR = dmsg["theta"]
+                thetaA = norm_ang(r2_phi+thetaR)
+                new_x = r2_x+np.cos(thetaA)
+                new_y = r2_y+np.sin(thetaA)
+                new_phi = norm_ang(np.pi- thetaA)
+                new_particles.append(Particle(j,x=new_x,y=new_y,phi=new_phi))  
+        new_ps = random.choices(new_particles, k=len(self.particles))
+        self.particles = copy.deepcopy(new_ps)
+
+    def cluster_mean(self,particles=None):
+        if particles == None:
+            particles = self.particles
+        mean_x =0
+        mean_y =0
+        mean_phi=0
+        for i,p in enumerate(particles):
+            mean_x+=p.x
+            mean_y+=p.y
+            mean_phi+=p.phi
+        n =len(particles)
+        return {"mean_x":mean_x/n,"mean_y":mean_y/n,"mean_phi":mean_phi/n}
 
 #r = Robot()
 #r.drawDDA(2,5,10,200)

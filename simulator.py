@@ -1,4 +1,4 @@
-from robot import Robot
+from robot import Robot, Particle, MCL
 import matplotlib.pyplot as plt
 import numpy as np
 import copy
@@ -48,6 +48,8 @@ class Terrain:
         return t
 
 
+def norm_ang(angle):
+    return (angle + np.pi) % (2 * np.pi) - np.pi
 
 class Sim:
     def __init__(self):
@@ -58,10 +60,10 @@ class Sim:
 class BlindSim():
     def __init__(self):
         self.dt = 0.1
-        self.robotList = [Robot(),Robot()]
-        self.robotPositions = [{"x":0,"y":0,"phi":0},{"x":0,"y":0,"phi":0}]
+        self.robotPositions = [{"x":1,"y":1,"phi":np.pi},{"x":-1,"y":-1,"phi":-np.pi}]
+        self.robotList = [Robot(self.robotPositions[0]),Robot()]
         self.history = []
-        self.detenction_range = 1000
+        self.detenction_range = 500
 
     def calc_relative_positions(self,index):
         source = self.robotPositions[index]
@@ -70,6 +72,8 @@ class BlindSim():
             if i == index:
                 continue
             else:
+                pos["phi"] = norm_ang(pos["phi"])
+                source["phi"] = norm_ang(source["phi"])
                 dx = (pos["x"]-source["x"])
                 dy = (pos["y"]-source["y"])
                 r = np.sqrt(dx**2 + dy**2)
@@ -91,7 +95,7 @@ class BlindSim():
     def update_absolute_position(self,i):
             robot= self.robotList[i]
             print(self.robotPositions[i])
-            deltas = robot.kinematics(robot.cmd_vel["u"],robot.cmd_vel["w"])
+            deltas = robot.kinematics(robot.cmd_vel["u"],robot.cmd_vel["w"],phi=self.robotPositions[i]["phi"])
             self.robotPositions[i]["x"]   +=  deltas["dx"] + np.random.normal(loc=0,scale=0.01)
             self.robotPositions[i]["y"]   +=  deltas["dy"] + np.random.normal(loc=0,scale=0.01)
             self.robotPositions[i]["phi"] +=  deltas["dPhi"] + np.random.normal(loc=0,scale=0.01)
@@ -102,7 +106,6 @@ class BlindSim():
             ### Motion model
             robot.MCL.apply_motion_model(robot.cmd_vel["u"],robot.cmd_vel["w"])
             particles = robot.MCL.get_particles()
-
             ### bearing and distance
             relative_positions = self.calc_relative_positions(index)
             neigbours = list(filter(lambda x: x["r"] <= self.detenction_range,relative_positions))
@@ -116,9 +119,28 @@ class BlindSim():
             particles = robot.MCL.get_particles()
             return {"neigbours":neigbours, "particles":particles}
 
+
+    def reciprocal_sample(self,index):
+            robot = self.robotList[index]
+            relative_positions = self.calc_relative_positions(index)
+            neigbours = list(filter(lambda x: x["r"] <= self.detenction_range,relative_positions))
+            dmsgs = []
+            for i, pos in enumerate(neigbours):
+                dmsg = copy.deepcopy(pos)
+                dmsg["particles"] = self.robotList[pos["from"]].MCL.get_particles()
+                print("particles ",len(dmsg["particles"]))
+                dmsgs.append(dmsg)
+            robot.MCL.reciprocal_sample(dmsgs)
+            particles = robot.MCL.get_particles()
+            print("PART LEN ",len(particles), type(particles[0]))
+            return  particles
+
+
+
+
     def no_env_sim(self):
         for i,r in enumerate(self.robotList):
-            self.history.append({"rid":i,"moves":[],"particles":[],"cmd_vel":[],"neigbours":[],"positions":[]})
+            self.history.append({"rid":i,"moves":[],"particles":[],"cmd_vel":[],"neigbours":[],"positions":[],"corrected":[]})
         for n in range(100):
             for i,r in enumerate(self.robotList):
                 ### Move 
@@ -130,38 +152,89 @@ class BlindSim():
             for i,r in enumerate(self.robotList):
                 l = self.localize_step(i)
                 self.history[i]["neigbours"].append(l["neigbours"])
-                self.history[i]["particles"].append(l["particles"])
+                #self.history[i]["particles"].append(l["particles"])
             for i,r in enumerate(self.robotList):
-                particles = r.MCL.simple_sampling()
+                #if i%2 == 0:
+                #particles = r.MCL.simple_sampling()
+                #else :
+                particles = self.reciprocal_sample(i)
                 self.history[i]["particles"].append(particles)
+
        # print(self.history[0]["moves"])
         self.plot_path()
 
 
-    def plot_path(self):
-        fig, ax = plt.subplots()  # Create a figure containing a single axes.
+    def get_corrected_location(self):
+        cluster_helper =  MCL(1)
+        mean_real = np.zeros((2,len(self.history[0]["positions"])),)
+        mean_cloud = np.zeros((2,len(self.history[0]["positions"])))
         for i,r in enumerate(self.robotList):
             absolute_xs = [h["x"] for h in self.history[i]["positions"]]
             absolute_ys = [h["y"] for h in self.history[i]["positions"]]
+            mean_real=mean_real+np.vstack((np.array(absolute_xs),np.array(absolute_ys)))
+            p_means = [ cluster_helper.cluster_mean(h) for h in self.history[i]["particles"]]
+            p_mean_x = [ mean['mean_x'] for mean in p_means]
+            p_mean_y = [ mean['mean_y'] for mean in p_means]
+            mean_cloud=mean_cloud+np.vstack((np.array(p_mean_x),np.array(p_mean_y)))
+
+        translation = mean_real/len(self.robotList) - mean_cloud/len(self.robotList)
+        for i,r in enumerate(self.robotList):
+            absolute_xs = [h["x"] for h in self.history[i]["positions"]]
+            absolute_ys = [h["y"] for h in self.history[i]["positions"]]
+            robot_real = np.vstack((np.array(absolute_xs),np.array(absolute_ys)))
+            p_means = [ cluster_helper.cluster_mean(h) for h in self.history[i]["particles"]]
+            p_mean_x = [ mean['mean_x'] for mean in p_means]
+            p_mean_y = [ mean['mean_y'] for mean in p_means]
+            robot_cloud=np.vstack((np.array(p_mean_x),np.array(p_mean_y)))
+            robot_final = robot_real-robot_cloud-translation
+            #self.history[i]["corrected"].append({"fixed_x":robot_final[0],"fixed_y":robot_final[1]})
+            self.history[i]["corrected"].append(robot_final)
+
+    def plot_path(self):
+        cluster_helper =  MCL(1)
+        fig, ax = plt.subplots()  # Create a figure containing a single axes.
+        #mean cez vse robote na vsak timestep 
+        # translation_vec =  mead_real - mean_cloud 
+        # for each robot real-infer-translateion_vector
+        mean_cloud = np.zeros((2,len(self.history[0]["positions"])))
+        for i,r in enumerate(self.robotList):
+            absolute_xs = [h["x"] for h in self.history[i]["positions"]]
+            absolute_ys = [h["y"] for h in self.history[i]["positions"]]
+            ax.plot(absolute_xs, absolute_ys)  # Plot some data on the axes
             #print(xs)
             belief_xs = [h["x"] for h in self.history[i]["moves"]]
             belief_ys = [h["y"] for h in self.history[i]["moves"]]
+            ax.plot(belief_xs, belief_ys, linestyle = ':')  # Plot some data on the axes
             #print(xs)
 
-            ax.plot(absolute_xs, absolute_ys)  # Plot some data on the axes
-            ax.plot(belief_xs, belief_ys, linestyle = ':')  # Plot some data on the axes
             particle_history = [h for h in self.history[i]["particles"]]
+            p_means = [ cluster_helper.cluster_mean(h) for h in self.history[i]["particles"]]
+            p_mean_x = [ mean['mean_x'] for mean in p_means]
+            p_mean_y = [ mean['mean_y'] for mean in p_means]
+            print("Len mean x ",len(p_mean_x))
+            print("Len particle_history ",len(particle_history))
+            print("Len cloud  ",(mean_cloud).shape)
+            mean_cloud=mean_cloud+np.vstack((np.array(p_mean_x),np.array(p_mean_y)))
+
             for ps in particle_history:
                 #print(ps)
                 x_positions = [p.x for p in ps]
                 y_positions = [p.y for p in ps]
+                mean = MCL(1).cluster_mean(ps)
                 ws =  [1 for p in ps]
                 #print(ws)
                 cmap = { 0:'k',1:'b',2:'y',3:'g',4:'r' }
                 ax.scatter(x_positions, y_positions,s=ws,color=cmap[i])  # Plot some data on the axes
+                ax.scatter(mean["mean_x"], mean["mean_y"],s=10,color="r")  # Plot some data on the axes
+            self.get_corrected_location()
+
+            for i,r in enumerate(self.robotList):
+                print(type(self.history[i]["corrected"]))
+                print((self.history[i]["corrected"][0]))
+                ax.scatter(self.history[i]["corrected"][0][0], self.history[i]["corrected"][0][1],s=10,color=cmap[i+2])  # Plot some data on the axes
+
 
         plt.show()
-
 
 
 bsim = BlindSim()
