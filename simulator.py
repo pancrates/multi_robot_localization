@@ -60,7 +60,7 @@ class Sim:
 class BlindSim():
     def __init__(self):
         self.dt = 0.1
-        self.robotPositions = [{"x":1,"y":1,"phi":np.pi},{"x":-1,"y":-1,"phi":-np.pi}]
+        self.robotPositions = [{"x":1,"y":1,"phi":np.pi/2},{"x":-1,"y":-1,"phi":-np.pi}]
         self.robotList = [Robot(self.robotPositions[0]),Robot()]
         self.history = []
         self.detenction_range = 500
@@ -77,8 +77,8 @@ class BlindSim():
                 dx = (pos["x"]-source["x"])
                 dy = (pos["y"]-source["y"])
                 r = np.sqrt(dx**2 + dy**2)
-                theta = np.arctan2(dy,dx) - pos["phi"]
-                theta2 = np.arctan2(-dy,-dx) - source["phi"]
+                theta = norm_ang(np.arctan2(dy,dx) - pos["phi"])
+                theta2 = norm_ang(np.arctan2(-dy,-dx) - source["phi"])
                 relative_positions.append( {"from":i,"to":index,"r":r,"theta":theta,"theta2":theta2})
         return relative_positions
 
@@ -111,6 +111,7 @@ class BlindSim():
             neigbours = list(filter(lambda x: x["r"] <= self.detenction_range,relative_positions))
             dmsgs = []
             for i, pos in enumerate(neigbours):
+
                 dmsg = copy.deepcopy(pos)
                 dmsg["particles"] = self.robotList[pos["from"]].MCL.get_particles()
                 print("particles ",len(dmsg["particles"]))
@@ -154,10 +155,12 @@ class BlindSim():
                 self.history[i]["neigbours"].append(l["neigbours"])
                 #self.history[i]["particles"].append(l["particles"])
             for i,r in enumerate(self.robotList):
-                #if i%2 == 0:
                 #particles = r.MCL.simple_sampling()
-                #else :
-                particles = self.reciprocal_sample(i)
+                #particles = self.reciprocal_sample(i)
+                if i%2 == 0:
+                    r.MCL.correct_position(self.robotPositions[i])
+                    particles = copy.deepcopy(r.MCL.particles)
+                else:   particles = self.reciprocal_sample(i)
                 self.history[i]["particles"].append(particles)
 
        # print(self.history[0]["moves"])
@@ -225,7 +228,7 @@ class BlindSim():
                 #print(ws)
                 cmap = { 0:'k',1:'b',2:'y',3:'g',4:'r' }
                 ax.scatter(x_positions, y_positions,s=ws,color=cmap[i])  # Plot some data on the axes
-                ax.scatter(mean["mean_x"], mean["mean_y"],s=10,color="r")  # Plot some data on the axes
+                ax.scatter(mean["mean_x"], mean["mean_y"],s=10,color=("r" if i==1 else "m"))  # Plot some data on the axes
             self.get_corrected_location()
 
             for i,r in enumerate(self.robotList):

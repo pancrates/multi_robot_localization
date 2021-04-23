@@ -220,11 +220,17 @@ class MCL:
                 r2_x = p.x
                 r2_y = p.y
                 r2_phi = p.phi
+                print("pHI2 ",r2_phi)
                 thetaR = dmsg["theta"]
-                thetaA = norm_ang(r2_phi+thetaR)
-                new_x = r2_x+np.cos(thetaA)
-                new_y = r2_y+np.sin(thetaA)
-                new_phi = norm_ang(np.pi- thetaA)
+                thetaL = dmsg["theta2"]
+                print("TH R ",thetaR)
+                print("TH L ",thetaL)
+                thetaA = norm_ang(r2_phi+thetaL )
+                print("TH A",thetaA)
+                new_x = r2_x+np.cos(thetaA)*dmsg["r"]
+                new_y = r2_y+np.sin(thetaA)*dmsg["r"]
+
+                new_phi = norm_ang(np.pi- thetaR)
                 new_particles.append(Particle(j,x=new_x,y=new_y,phi=new_phi))  
         new_ps = random.choices(new_particles, k=len(self.particles))
         self.particles = copy.deepcopy(new_ps)
@@ -242,6 +248,12 @@ class MCL:
         n =len(particles)
         return {"mean_x":mean_x/n,"mean_y":mean_y/n,"mean_phi":mean_phi/n}
 
+    def correct_position(self,pos):
+        for i,p in enumerate(self.particles):
+            p.x = pos["x"]
+            p.y = pos["y"]
+            p.phi = pos["phi"]
+        return copy.deepcopy(self.particles)
 #r = Robot()
 #r.drawDDA(2,5,10,200)
 
