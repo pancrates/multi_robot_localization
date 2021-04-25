@@ -76,6 +76,13 @@ class Robot:
         w = 0 #np.random.normal(loc=0, scale=np.pi/2)
         return {"u":u,"w":w}
     #def distance_and_bearing(self,dmsg): 
+    def straight(self):
+        #u = self.cmd_vel["u"] + np.random.normal(loc=0,scale=0.5)
+        #w = self.cmd_vel["w"] + np.random.normal(loc=0,scale=np.pi/2)
+        u = 0.1 #np.random.normal(loc=0.5,scale=0.5)
+        w = 0 #np.random.normal(loc=0, scale=np.pi/2)
+        return {"u":u,"w":w}
+#def distance_and_bearing(self,dmsg): 
 
 
 
@@ -95,10 +102,19 @@ class Particle:
 
     def update_position(self,u,w):
         deltas = self.kinematics(u,w)
-        self.x = self.x     + deltas["dx"] + np.random.normal(loc=0,scale=0.1)
-        self.y = self.y     + deltas["dy"] + np.random.normal(loc=0,scale=0.1)
-        self.phi = self.phi + deltas["dPhi"] + np.random.normal(loc=0,scale=0.1)
+        dx = deltas["dx"] + np.random.normal(loc=0,scale=0.1)
+        dy = deltas["dy"] + np.random.normal(loc=0,scale=0.1)
+        dPhi = deltas["dPhi"] + np.random.normal(loc=0,scale=0.1)
 
+        self.x += dx
+        self.y += dy
+        self.phi += dPhi
+        self.last_update = {"self_dx":dx,"self_dy":dy,"self_dPhi":dPhi}
+
+    def odom_update(self,rdx,rdy,rdPhi):
+        xs = np.array([self.last_update["self_dx"],self.last_update["self_dx"],self.last_update["self_dx"]])
+        prob = stats.multivariate_normal.pdf(xs,mean=xs,cov=1)
+        self.w *= prob
 
     ### Here the ray trace callback traditinaly works with the robot generated map
     def update_weight(self,readings,ray_trace_callback,sigma=0.1):
@@ -130,11 +146,15 @@ class Particle:
             dx = (p.x-self.x)
             dy = (p.x-self.y)
             dr = np.sqrt(dx**2 + dy**2) - dmsg["r"]
+            print("DR ",dr)
             dTheta = norm_ang(np.arctan2(dy,dx) - (p.phi + dmsg["theta"]))
             dPhi = norm_ang(np.pi - p.phi - self.phi + dmsg["theta"] - dmsg["theta2"])
-            sample = np.array([dr,dTheta,dPhi])
-            s=0.1
-            prob = stats.multivariate_normal.pdf(sample,mean=np.array([0,0,0]),cov=np.array([[s,0,0],[0,s,0],[0,0,4*s]]))
+            print("DTHETA ",dTheta)
+            #sample = np.array([dr,dTheta,dPhi])
+            sample = np.array([dr,dTheta])
+            s=0.0001
+            #prob = stats.multivariate_normal.pdf(sample,mean=np.array([0,0,0]),cov=np.array([[s,0,0],[0,s,0],[0,0,4*s]]))
+            prob = stats.multivariate_normal.pdf(sample,mean=np.array([0,0]),cov=np.array([[s,0],[0,s]]))
 
             #print(prob)
             w+=prob
@@ -225,10 +245,11 @@ class MCL:
                 thetaL = dmsg["theta2"]
                 print("TH R ",thetaR)
                 print("TH L ",thetaL)
-                thetaA = norm_ang(r2_phi+thetaL )
+                thetaA = norm_ang(r2_phi+thetaR )
                 print("TH A",thetaA)
-                new_x = r2_x+np.cos(thetaA)*dmsg["r"]
-                new_y = r2_y+np.sin(thetaA)*dmsg["r"]
+                new_x = r2_x-np.cos(thetaA)*dmsg["r"] +np.random.normal(0,0.1)
+                new_y = r2_y-np.sin(thetaA)*dmsg["r"] +np.random.normal(0,0.1)
+
 
                 new_phi = norm_ang(np.pi- thetaR)
                 new_particles.append(Particle(j,x=new_x,y=new_y,phi=new_phi))  
