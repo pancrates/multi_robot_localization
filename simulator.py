@@ -60,8 +60,8 @@ class Sim:
 class BlindSim():
     def __init__(self):
         self.dt = 0.1
-        self.robotPositions = [{"x":1,"y":1,"phi":np.pi/2},{"x":-1,"y":-1,"phi":-np.pi}]
-        self.robotList = [Robot(self.robotPositions[0]),Robot()]
+        self.robotPositions = [{"x":1,"y":1,"phi":np.pi/3},{"x":-1,"y":-1,"phi":-np.pi-0.002},{"x":-1,"y":-2,"phi":-np.pi-0.002}]
+        self.robotList = [Robot(self.robotPositions[0]),Robot(),Robot()]
         self.history = []
         self.detenction_range = 500
 
@@ -80,6 +80,8 @@ class BlindSim():
                 theta = norm_ang(np.arctan2(dy,dx) - pos["phi"])
                 theta2 = norm_ang(np.arctan2(-dy,-dx) - source["phi"])
                 relative_positions.append( {"from":i,"to":index,"r":r,"theta":theta,"theta2":theta2})
+                if(len(relative_positions)) > 2:
+                    exit()
         return relative_positions
 
     def move_step(self,index):
@@ -98,7 +100,7 @@ class BlindSim():
             deltas = robot.kinematics(robot.cmd_vel["u"],robot.cmd_vel["w"],phi=self.robotPositions[i]["phi"])
             self.robotPositions[i]["x"]   +=  deltas["dx"] + np.random.normal(loc=0,scale=0.01)
             self.robotPositions[i]["y"]   +=  deltas["dy"] + np.random.normal(loc=0,scale=0.01)
-            self.robotPositions[i]["phi"] +=  deltas["dPhi"] + np.random.normal(loc=0,scale=0.01)
+            self.robotPositions[i]["phi"] +=  norm_ang(deltas["dPhi"] + np.random.normal(loc=0,scale=0.01))
             print(self.robotPositions[i])
 
     def localize_step(self,index):
@@ -111,14 +113,13 @@ class BlindSim():
             neigbours = list(filter(lambda x: x["r"] <= self.detenction_range,relative_positions))
             dmsgs = []
             for i, pos in enumerate(neigbours):
-
                 dmsg = copy.deepcopy(pos)
                 dmsg["particles"] = self.robotList[pos["from"]].MCL.get_particles()
                 print("particles ",len(dmsg["particles"]))
                 dmsgs.append(dmsg)
             robot.MCL.apply_detection_model(dmsgs)
             particles = robot.MCL.get_particles()
-            return {"neigbours":neigbours, "particles":particles}
+            return {"neigbours":neigbours, "particles":particles,"dmsgs":dmsgs}
 
 
     def reciprocal_sample(self,index):
@@ -154,12 +155,14 @@ class BlindSim():
                 l = self.localize_step(i)
                 self.history[i]["neigbours"].append(l["neigbours"])
                 #self.history[i]["particles"].append(l["particles"])
+                #r.MCL.get_prob_map(l["dmsgs"])
             for i,r in enumerate(self.robotList):
                 #particles = r.MCL.simple_sampling()
                 #particles = self.reciprocal_sample(i)
-                if i%2 == 0:
-                    r.MCL.correct_position(self.robotPositions[i])
-                    particles = copy.deepcopy(r.MCL.particles)
+                if i == 0:
+                     particles = r.MCL.simple_sampling()
+                #    r.MCL.correct_position(self.robotPositions[i])
+                #    particles = copy.deepcopy(r.MCL.particles)
                 else:   particles = self.reciprocal_sample(i)
                 self.history[i]["particles"].append(particles)
 
@@ -234,7 +237,7 @@ class BlindSim():
             for i,r in enumerate(self.robotList):
                 print(type(self.history[i]["corrected"]))
                 print((self.history[i]["corrected"][0]))
-                ax.scatter(self.history[i]["corrected"][0][0], self.history[i]["corrected"][0][1],s=10,color=cmap[i+2])  # Plot some data on the axes
+                #ax.scatter(self.history[i]["corrected"][0][0], self.history[i]["corrected"][0][1],s=10,color=cmap[i+2])  # Plot some data on the axes
 
 
         plt.show()

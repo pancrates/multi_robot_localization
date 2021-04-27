@@ -4,6 +4,9 @@ from scipy import stats
 import math
 import copy
 import random
+import matplotlib.pyplot as plt
+
+
 def norm_ang(angle):
    return (angle + np.pi) % (2 * np.pi) - np.pi
 
@@ -80,7 +83,7 @@ class Robot:
         #u = self.cmd_vel["u"] + np.random.normal(loc=0,scale=0.5)
         #w = self.cmd_vel["w"] + np.random.normal(loc=0,scale=np.pi/2)
         u = 0.1 #np.random.normal(loc=0.5,scale=0.5)
-        w = 0 #np.random.normal(loc=0, scale=np.pi/2)
+        w = 0.01 #np.random.normal(loc=0, scale=np.pi/2)
         return {"u":u,"w":w}
 #def distance_and_bearing(self,dmsg): 
 
@@ -102,9 +105,9 @@ class Particle:
 
     def update_position(self,u,w):
         deltas = self.kinematics(u,w)
-        dx = deltas["dx"] + np.random.normal(loc=0,scale=0.1)
-        dy = deltas["dy"] + np.random.normal(loc=0,scale=0.1)
-        dPhi = deltas["dPhi"] + np.random.normal(loc=0,scale=0.1)
+        dx = deltas["dx"] + np.random.normal(loc=0,scale=0.2)
+        dy = deltas["dy"] + np.random.normal(loc=0,scale=0.2)
+        dPhi = deltas["dPhi"] + np.random.normal(loc=0,scale=0.2)
 
         self.x += dx
         self.y += dy
@@ -132,33 +135,36 @@ class Particle:
             return 1
 
         host_r = dmsgs[0]["to"]
-        print("PARTICLE ",self.id,"of R ",host_r,"working on particles from ",dmsgs[0]["from"])
         w = 1
         for i,dmsg in enumerate(dmsgs):
+            print("PARTICLE ",self.id,"of R ",host_r,"working on particles from ",dmsg["from"])
             w*= self.weight_of_message(dmsg)
         return w
 
-    def weight_of_message(self,dmsg):
+    def weight_of_message(self,dmsg,slf=None):
         w = 0
+        if slf == None:
+            slf =self
         for i,p in enumerate(dmsg["particles"]):
             p.phi = norm_ang(p.phi)
-            self.phi = norm_ang(self.phi)
-            dx = (p.x-self.x)
-            dy = (p.x-self.y)
+            slf.phi = norm_ang(slf.phi)
+            dx = (p.x-slf.x)
+            dy = (p.x-slf.y)
             dr = np.sqrt(dx**2 + dy**2) - dmsg["r"]
             print("DR ",dr)
+            print("PAR POS (",p.x,p.y,")")
             dTheta = norm_ang(np.arctan2(dy,dx) - (p.phi + dmsg["theta"]))
-            dPhi = norm_ang(np.pi - p.phi - self.phi + dmsg["theta"] - dmsg["theta2"])
+            dPhi = norm_ang(np.pi - p.phi - slf.phi + dmsg["theta"] - dmsg["theta2"])
             print("DTHETA ",dTheta)
             #sample = np.array([dr,dTheta,dPhi])
             sample = np.array([dr,dTheta])
-            s=0.0001
+            s=0.1
             #prob = stats.multivariate_normal.pdf(sample,mean=np.array([0,0,0]),cov=np.array([[s,0,0],[0,s,0],[0,0,4*s]]))
             prob = stats.multivariate_normal.pdf(sample,mean=np.array([0,0]),cov=np.array([[s,0],[0,s]]))
 
             #print(prob)
             w+=prob
-        return w/len(dmsg["particles"])
+        return w
 
 class MCL:
     def __init__(self,particleN=10,pos=None):
@@ -166,8 +172,8 @@ class MCL:
         self.particles = []
         for n in range(particleN):
             if pos == None:
-                x = np.random.uniform(low=-3,high=3)
-                y = np.random.uniform(low=-3,high=3)
+                x = np.random.uniform(low=-5,high=5)
+                y = np.random.uniform(low=-5,high=5)
                 phi = np.random.uniform(low=-np.pi,high=np.pi)
                 self.particles.append(Particle(n,x=x,y=y,phi=phi))
             else:
@@ -225,6 +231,7 @@ class MCL:
             #    new_p = Particle(i,x=np.random.uniform(low=-15,high=15),y=np.random.uniform(low=-15,high=15),phi=np.random.uniform(low=-np.pi,high=np.pi))
             new_particles.append(new_p)
         self.particles = new_particles
+
         return self.particles
 
 
@@ -245,16 +252,29 @@ class MCL:
                 thetaL = dmsg["theta2"]
                 print("TH R ",thetaR)
                 print("TH L ",thetaL)
-                thetaA = norm_ang(r2_phi+thetaR )
+                thetaA = norm_ang(r2_phi+thetaR)
                 print("TH A",thetaA)
-                new_x = r2_x-np.cos(thetaA)*dmsg["r"] +np.random.normal(0,0.1)
-                new_y = r2_y-np.sin(thetaA)*dmsg["r"] +np.random.normal(0,0.1)
-
-
+                new_x = r2_x-np.cos(thetaA)*dmsg["r"] #+np.random.normal(0,0.1)
+                new_y = r2_y-np.sin(thetaA)*dmsg["r"] #+np.random.normal(0,0.1)
                 new_phi = norm_ang(np.pi- thetaR)
                 new_particles.append(Particle(j,x=new_x,y=new_y,phi=new_phi))  
         new_ps = random.choices(new_particles, k=len(self.particles))
         self.particles = copy.deepcopy(new_ps)
+        #self.get_prob_map(dmsgs)
+
+
+    def get_prob_map(self,dmsgs):
+        fig,ax = plt.subplots()
+        mean = self.cluster_mean(particles=dmsgs[0]["particles"])
+        for x in range(-10,10):
+            for y in range(-20,20):
+                print("PARTICLE (",x,y,")")
+                sim_p = Particle(0,x=x,y=y)
+                w = sim_p.weight_of_message(dmsgs[0])
+                print("WEIGHT",w)
+                ax.scatter([x],[y],s=10*w,c='r')
+                ax.scatter([mean["mean_x"]],[mean["mean_y"]],s=2,c='b')
+        plt.show()
 
     def cluster_mean(self,particles=None):
         if particles == None:
